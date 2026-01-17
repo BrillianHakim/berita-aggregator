@@ -16,7 +16,8 @@ class RssService
         foreach (config('rss') as $feed) {
 
             $response = Http::timeout(15)->get($feed['url']);
-            if (!$response->successful()) {
+
+            if (! $response->successful()) {
                 continue;
             }
 
@@ -36,7 +37,9 @@ class RssService
 
             libxml_clear_errors();
 
-            // 🔹 SUPPORT BERBAGAI FORMAT RSS
+            // =============================
+            // SUPPORT BERBAGAI FORMAT RSS
+            // =============================
             if (isset($rss->channel->item)) {
                 $items = $rss->channel->item;
             } elseif (isset($rss->item)) {
@@ -47,111 +50,117 @@ class RssService
                 continue;
             }
 
-            // 🔹 AMBIL CATEGORY
+            // =============================
+            // AMBIL CATEGORY
+            // =============================
             $category = Category::where('slug', $feed['category'])->first();
-            if (!$category) {
+
+            if (! $category) {
                 Log::warning('CATEGORY NOT FOUND', $feed);
                 continue;
             }
 
-            // 🔹 AMBIL / BUAT SOURCE
+            // =============================
+            // AMBIL / BUAT SOURCE
+            // =============================
             $source = Source::firstOrCreate(
                 ['name' => $feed['name']],
                 [
                     'website' => $feed['url'],
-                    'image' => match ($feed['name']) {
-                        'BBC Indonesia'      => 'images/sources/bbc.png',
-                        'Republika'          => 'images/sources/republika.png',
-                        'Kaskus'             => 'images/sources/kaskus.png',
-                        'Al Jazeera'           => 'images/sources/aljazeera.png',
-                        'Media Indonesia'    => 'images/sources/media-indonesia.png',
-                        'BBC Sport'          => 'images/sources/bbc-sport.png',
-                        'CNBC Indonesia - Ekonomi' => 'images/sources/cnbc.png',
-                        default              => 'images/sources/default.png',
-                    }
+                    'image'   => match ($feed['name']) {
+                        'BBC Indonesia'                 => 'images/sources/bbc.png',
+                        'Republika'                     => 'images/sources/republika.png',
+                        'Kaskus'                        => 'images/sources/kaskus.png',
+                        'Al Jazeera'                    => 'images/sources/aljazeera.png',
+                        'Media Indonesia'               => 'images/sources/media-indonesia.png',
+                        'BBC Sport'                     => 'images/sources/bbc-sport.png',
+                        'CNBC Indonesia - Ekonomi'      => 'images/sources/cnbc.png',
+                        default                         => 'images/sources/default.png',
+                    },
                 ]
             );
 
             foreach ($items as $item) {
 
-    // =============================
-    // AMBIL LINK SECARA AMAN
-    // =============================
-    $link = null;
+                // =============================
+                // AMBIL LINK SECARA AMAN
+                // =============================
+                $link = null;
 
-    if (isset($item->link)) {
-        $link = (string) $item->link;
-    }
+                if (isset($item->link)) {
+                    $link = (string) $item->link;
+                }
 
-    // Atom <link href="">
-    if (!$link && isset($item->link['href'])) {
-        $link = (string) $item->link['href'];
-    }
+                // Atom <link href="">
+                if (! $link && isset($item->link['href'])) {
+                    $link = (string) $item->link['href'];
+                }
 
-    if (!$link) {
-        Log::warning('SKIP ITEM TANPA LINK', [
-            'source' => $feed['name'],
-            'title' => (string) $item->title
-        ]);
-        continue; // ⛔ WAJIB
-    }
+                if (! $link) {
+                    Log::warning('SKIP ITEM TANPA LINK', [
+                        'source' => $feed['name'],
+                        'title'  => (string) $item->title,
+                    ]);
+                    continue;
+                }
 
-    // =============================
-    // SUMMARY
-    // =============================
-    $summary = (string)(
-        $item->description
-        ?? $item->children('content', true)->encoded
-        ?? ''
-    );
+                // =============================
+                // SUMMARY
+                // =============================
+                $summary = (string) (
+                    $item->description
+                    ?? $item->children('content', true)->encoded
+                    ?? ''
+                );
 
-    $summary = trim(strip_tags($summary));
-    if ($summary === '') {
-        $summary = '(Ringkasan tidak tersedia)';
-    }
+                $summary = trim(strip_tags($summary));
 
-    // =============================
-    // IMAGE
-    // =============================
-    $image = $this->extractImageFromItem($item);
-    if (!$image) {
-        $image = $this->fetchOgImage($link);
-    }
+                if ($summary === '') {
+                    $summary = '(Ringkasan tidak tersedia)';
+                }
 
-    // =============================
-    // KHUSUS KASKUS → CREATE
-    // =============================
-    if ($feed['name'] === 'Kaskus') {
+                // =============================
+                // IMAGE
+                // =============================
+                $image = $this->extractImageFromItem($item);
 
-        Article::create([
-            'url'          => $link . '#' . uniqid(),
-            'title'        => (string) $item->title ?: 'Judul tidak tersedia',
-            'summary'      => $summary,
-            'image'        => $image,
-            'published_at' => now(),
-            'category_id'  => $category->id,
-            'source_id'    => $source->id,
-        ]);
+                if (! $image) {
+                    $image = $this->fetchOgImage($link);
+                }
 
-        continue;
-    }
+                // =============================
+                // KHUSUS KASKUS
+                // =============================
+                if ($feed['name'] === 'Kaskus') {
 
-    // =============================
-    // MEDIA BERITA
-    // =============================
-    Article::updateOrCreate(
-        ['url' => $link],
-        [
-            'title'        => (string) $item->title,
-            'summary'      => $summary,
-            'image'        => $image,
-            'published_at' => now(),
-            'category_id'  => $category->id,
-            'source_id'    => $source->id,
-        ]
-    );
-}
+                    Article::create([
+                        'url'          => $link . '#' . uniqid(),
+                        'title'        => (string) $item->title ?: 'Judul tidak tersedia',
+                        'summary'      => $summary,
+                        'image'        => $image,
+                        'published_at' => now(),
+                        'category_id'  => $category->id,
+                        'source_id'    => $source->id,
+                    ]);
 
+                    continue;
+                }
+
+                // =============================
+                // MEDIA BERITA LAINNYA
+                // =============================
+                Article::updateOrCreate(
+                    ['url' => $link],
+                    [
+                        'title'        => (string) $item->title,
+                        'summary'      => $summary,
+                        'image'        => $image,
+                        'published_at' => now(),
+                        'category_id'  => $category->id,
+                        'source_id'    => $source->id,
+                    ]
+                );
+            }
         }
     }
 
@@ -171,16 +180,19 @@ class RssService
 
         // enclosure
         if (isset($item->enclosure)) {
-            return (string) $item->enclosure->attributes()->url;
+            return (string) $item->enclosure
+                ->attributes()
+                ->url;
         }
 
-        // img in description
+        // img di description
         if (isset($item->description)) {
             preg_match(
                 '/<img[^>]+src=["\']([^"\']+)["\']/',
                 (string) $item->description,
                 $matches
             );
+
             return $matches[1] ?? null;
         }
 
@@ -192,11 +204,11 @@ class RssService
         try {
             $response = Http::timeout(10)
                 ->withHeaders([
-                    'User-Agent' => 'Mozilla/5.0 (BeritaKu Bot)'
+                    'User-Agent' => 'Mozilla/5.0 (BeritaKu Bot)',
                 ])
                 ->get($url);
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 return null;
             }
 
